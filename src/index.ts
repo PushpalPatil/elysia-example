@@ -12,13 +12,29 @@ const users = [
 
 const getUser = new Elysia()
   .derive(
-    ({ headers }) => {
+    ({ headers, cookie }) => {
+      let secret = null;
       const auth = headers.authorization
+
       if (!auth) return { user: null }
+
+      // check for Bearer token in the Authorization header
+      if (auth && auth.startsWith('Bearer ')) {
+        // if there is bearer then just take it out and assign to secret
+        secret = auth.replace('Bearer ', '')
+        console.log(secret)
+      }
+
+      // ELSE assign secret to be the secret's value
+      else {
+        secret = cookie.secret.value;
+        console.log(secret)
+      }
 
       const [username, password] = auth.split(":");
 
-      const user = users.find((user) => user.username === username && user.password === password);
+      //const user = users.find((user) => user.username === username && user.password === password);
+      const user = users.find((user) => user.secret === secret);
       return { user };
     }
   );
@@ -43,18 +59,35 @@ const protectedRoutes = new Elysia()
   .get("/", () => "Hello Elysia")
   .get("/api/public", () => { return "This is public information" })
   .use(checkAdmin)
-  .get("/api/protected", ({ user }) => {
-    return `Only admin should be able to see this, hi there ${user?.username}`
+  .get("/api/protected", (requestInfo) => {
+    const authorizationHeaderValue = requestInfo.headers.authorization
+    let secret = null
+    if (authorizationHeaderValue && authorizationHeaderValue.startsWith('Bearer ')) {
+      // if there is bearer then just take it out and assign to secret
+      secret = authorizationHeaderValue.replace('Bearer ', '')
+    }
+    if (secret === null) {
+      requestInfo.set.status = 401;
+      return "No Secret Found!"
+    }
+    const user = users.find((user) => user.secret === secret);
+    if (user === undefined) {
+      requestInfo.set.status = 401;
+      return "no user found"
+    }
+    if (user.role !== 'admin') {
+      requestInfo.set.status = 403
+      return { error: "Admin access required" };
+    }
+
+    return `Hello welcome to our secret endpoint, ${user.username}`
   });
 
 
 
 const app = new Elysia()
   .use(swagger(
-    {
-      path: '/api-docs'
-    }
-  ))
+    { path: '/api-docs' }))
   .use(protectedRoutes)
   .listen(3000)
 
